@@ -8,18 +8,18 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 type TS = u128;
-type WORKER = u16;
-type SEQUENCE = u16;
+type Worker = u16;
+type Sequence = u16;
 
 static PREV_TS: Lazy<Mutex<TS>> = Lazy::new(|| Mutex::new(0));
-static WORKER_ID: OnceCell<WORKER> = OnceCell::new();
-static SEQUENCE_ID: Lazy<Mutex<SEQUENCE>> = Lazy::new(|| Mutex::new(0));
+static WORKER_ID: OnceCell<Worker> = OnceCell::new();
+static SEQUENCE_ID: Lazy<Mutex<Sequence>> = Lazy::new(|| Mutex::new(0));
 
 #[derive(Eq, PartialEq)]
 pub struct Snowflake {
     pub timestamp: TS,
-    pub worker_id: WORKER,
-    pub sequence_id: SEQUENCE,
+    pub worker_id: Worker,
+    pub sequence_id: Sequence,
 }
 
 impl Snowflake {
