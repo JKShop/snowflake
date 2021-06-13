@@ -49,12 +49,13 @@ pub struct Snowflake {
 
 impl Snowflake {
     fn as_hex_string(&self) -> String {
-        [
+        let x: String = [
             format!("{:01$x}", self.timestamp, 16),
             format!("{:01$x}", self.worker_id, 4),
             format!("{:01$x}", self.sequence_id, 4),
         ]
-        .join("")
+        .join("");
+        x.trim().to_string()
     }
 }
 
