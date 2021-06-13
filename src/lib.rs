@@ -1,25 +1,50 @@
 #![feature(slice_partition_dedup)]
+#![forbid(unsafe_code)]
+#![deny(clippy::needless_borrow, clippy::unwrap_used)]
+#![deny(unused_imports)]
+#![forbid(missing_docs)]
+#![feature(async_closure)]
+//! This crate generates Snowflake id's
+//! It get's it's worker id from an remote endpoint and re-verifies automatically
 
 use core::fmt;
 use once_cell::sync::{Lazy, OnceCell};
+use reqwest::StatusCode;
+use serde::Deserialize;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Mutex;
-use std::thread;
+use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{env, thread};
 
-type TS = u128;
-type Worker = u16;
-type Sequence = u16;
+/// Holds response for / request
+#[derive(Deserialize, Debug)]
+struct CoordinatorResponse {
+    /// Worker id of requester
+    pub id: WorkerId,
+    /// Request timestamp
+    pub ts: CoordinatorTimestamp,
+    /// Last accepted timestamp, before id is given out again
+    pub re_ts: CoordinatorTimestamp,
+}
+type CoordinatorTimestamp = u64;
+type NanoTimestamp = u128;
+type WorkerId = u16;
+type SequenceId = u16;
 
-static PREV_TS: Lazy<Mutex<TS>> = Lazy::new(|| Mutex::new(0));
-static WORKER_ID: OnceCell<Worker> = OnceCell::new();
-static SEQUENCE_ID: Lazy<Mutex<Sequence>> = Lazy::new(|| Mutex::new(0));
+static PREV_TS: Lazy<Mutex<NanoTimestamp>> = Lazy::new(|| Mutex::new(0));
+static WORKER_ID: OnceCell<WorkerId> = OnceCell::new();
+static SEQUENCE_ID: Lazy<Mutex<SequenceId>> = Lazy::new(|| Mutex::new(0));
 
+/// Holds an snowflake id
 #[derive(Eq, PartialEq)]
 pub struct Snowflake {
-    pub timestamp: TS,
-    pub worker_id: Worker,
-    pub sequence_id: Sequence,
+    /// Snowflake generation timestamp
+    pub timestamp: NanoTimestamp,
+    /// Snowflake worker id
+    pub worker_id: WorkerId,
+    /// Snowflake sequence id (if multiple where to be generated in the same nano sec)
+    pub sequence_id: SequenceId,
 }
 
 impl Snowflake {
@@ -50,13 +75,14 @@ impl Debug for Snowflake {
 /// # Returns
 /// * String - Snowflake
 impl Snowflake {
+    /// Generates a new snowflake
     pub async fn new() -> Self {
         // Don't change this order !
-        let mut sequence_id_lock = SEQUENCE_ID.lock().unwrap();
+        let mut sequence_id_lock = SEQUENCE_ID.lock().expect("Couldn't lock SEQUENCE_ID mutex");
         if *sequence_id_lock == u16::MAX {
             thread::sleep(Duration::from_nanos(10));
         }
-        let mut prev_ts_lock = PREV_TS.lock().unwrap();
+        let mut prev_ts_lock = PREV_TS.lock().expect("Couldn't lock PREV_TS mutex");
 
         let start = SystemTime::now();
         let since_the_epoch = start
@@ -72,7 +98,7 @@ impl Snowflake {
 
         Snowflake {
             timestamp: current_time,
-            worker_id: get_worker_id(),
+            worker_id: get_worker_id().await,
             sequence_id: *sequence_id_lock,
         }
     }
@@ -83,13 +109,119 @@ impl Snowflake {
 /// # Returns
 /// * u32 - worker id
 #[inline(always)]
-pub fn get_worker_id() -> u16 {
-    *WORKER_ID.get_or_init(|| {
-        //TODO add actual worker id
-        1
-    })
+async fn get_worker_id() -> WorkerId {
+    match WORKER_ID.get(){
+        None => {
+            let id = init_worker_id().await;
+            WORKER_ID.set(id).expect("WORKER_ID is set but unset ?");
+            id
+        }
+        Some(v) => {*v}
+    }
 }
 
+async fn init_worker_id() -> WorkerId {
+    let coordinator_url = env::var("SNOWFLAKE.COORDINATOR").expect("Coordinator url not set");
+    let response =
+        reqwest::get(&coordinator_url).await.expect("Failed to get Coordinator response");
+    if response.status() != StatusCode::OK {
+        panic!("Coordinator gave non-200 response !\n{:?}", response);
+    } else {
+        let cr: CoordinatorResponse =
+            serde_json::from_str(&response.text().await.expect("Couldn't parse response as text"))
+                .expect("Couldn't parse coordinator response !");
+
+        let local_ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        if (local_ts as i128 - cr.ts as i128).abs() > 60 {
+            panic!(
+                "Coordinator time and local time since unix epoch differ by more then 60 seconds !"
+            )
+        }
+
+        if cr.re_ts < local_ts  {
+            panic!("Coordinator re-verify time is smaller then local time")
+        }
+
+        let time_to_next_sleep =
+            cr.re_ts - 60 /* Attempts to verify 60 secs before it has to be done */ - local_ts;
+        let id = cr.id;
+        let curl = coordinator_url;
+
+        thread::spawn(move || {
+            sleep(Duration::from_secs(time_to_next_sleep));
+            log::info!("re-verifying snowflake worker id");
+            loop {
+                let mut verify_response =
+                    reqwest::blocking::get(format!("{}/reverify/{}", curl, id));
+                let mut re_verify = 0;
+                while verify_response.is_err() {
+                    if re_verify >= 10 {
+                        panic!("Failed to re-verify snowflake worker id !")
+                    }
+                    verify_response = reqwest::blocking::get(format!("{}/reverify/{}", curl, id));
+                    log::warn!("re-verifying failed. Attempt: {}", re_verify);
+                    re_verify += 1;
+                    sleep(Duration::from_secs(1));
+                }
+
+                log::info!("valid response");
+
+                match verify_response {
+                    Ok(v) => {
+                        let body = v
+                            .text()
+                            .expect("Couldn't read body from re-verify response");
+                        let rev: CoordinatorResponse = serde_json::from_str(&body)
+                            .expect("Couldn't deserialize re-verify response");
+
+                        log::debug!("Got rev: {:?}", &rev);
+
+                        if rev.id != id {
+                            panic!("Snowflake worker id changed ! {} -> {}", rev.id, id);
+                        }
+
+                        log::debug!("rev.id == id");
+
+                        let local_ts = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .expect("Time went backwards")
+                            .as_secs();
+
+                        log::debug!("got time");
+
+                        if (local_ts as i128 - rev.ts as i128).abs() > 60 {
+                            panic!(
+                                "Coordinator time and local time since unix epoch differ by more then 60 seconds !"
+                            )
+                        }
+                        log::info!("Time diff: {}", (local_ts as i128 - rev.ts as i128).abs());
+                        log::debug!("checked time diff");
+
+
+                        let time_to_next_sleep = rev.re_ts - 60 - local_ts;
+
+                        log::info!("TTNS: {}", time_to_next_sleep);
+
+                        log::info!("Snowflake re-validated, next: {}", time_to_next_sleep);
+
+                        sleep(Duration::from_secs(time_to_next_sleep))
+                    }
+                    Err(_) => {
+                        unreachable!("re_verify should panic before coming here !")
+                    }
+                }
+            }
+        });
+
+        id
+    }
+}
+
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
     use crate::Snowflake;
@@ -106,5 +238,11 @@ mod tests {
         println!("Deduping snowflakes");
         let (_, dups) = timestamps.partition_dedup_by_key(|e| e.as_hex_string());
         assert_eq!(dups.len(), 0);
+    }
+
+    #[tokio::test]
+    pub async fn test_b() {
+        let snowflake = Snowflake::new().await;
+        println!("{:?}", snowflake);
     }
 }
