@@ -6,6 +6,8 @@ pub async fn main(){
     let snowflake: Snowflake = Snowflake::new().await;
     log::debug!("{}", snowflake);
     log::debug!("{}", snowflake.to_string().len());
+
+    #[allow(clippy::empty_loop)]
     loop {
 
     }
