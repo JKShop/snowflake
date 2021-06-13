@@ -123,7 +123,7 @@ async fn get_worker_id() -> WorkerId {
 async fn init_worker_id() -> WorkerId {
     let coordinator_url = env::var("SNOWFLAKE.COORDINATOR").expect("Coordinator url not set");
     let response =
-        reqwest::get(&coordinator_url).await.expect("Failed to get Coordinator response");
+        reqwest::blocking::get(&coordinator_url).await.expect("Failed to get Coordinator response");
     if response.status() != StatusCode::OK {
         panic!("Coordinator gave non-200 response !\n{:?}", response);
     } else {
