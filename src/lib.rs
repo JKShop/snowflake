@@ -140,6 +140,9 @@ async fn init_worker_id() -> WorkerId {
             .as_secs();
 
         if (local_ts as i128 - cr.ts as i128).abs() > PRE_TIME as i128 {
+            log::error!("Local TS: {}", local_ts);
+            log::error!("Rev TS: {}", cr.ts);
+            log::error!("Diff: {}", (local_ts as i128 - rev.ts as i128).abs());
             panic!(
                 "Coordinator time and local time since unix epoch differ by more then {} seconds !",PRE_TIME
             )
@@ -189,6 +192,9 @@ async fn init_worker_id() -> WorkerId {
                             .as_secs();
 
                         if (local_ts as i128 - rev.ts as i128).abs() > PRE_TIME as i128{
+                            log::error!("Local TS: {}", local_ts);
+                            log::error!("Rev TS: {}", rev.ts);
+                            log::error!("Diff: {}", (local_ts as i128 - rev.ts as i128).abs());
                             panic!(
                                 "Coordinator time and local time since unix epoch differ by more then {} seconds !",PRE_TIME
                             )
