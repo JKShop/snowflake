@@ -168,8 +168,6 @@ async fn init_worker_id() -> WorkerId {
                     sleep(Duration::from_secs(1));
                 }
 
-                log::info!("valid response");
-
                 match verify_response {
                     Ok(v) => {
                         let body = v
@@ -178,34 +176,20 @@ async fn init_worker_id() -> WorkerId {
                         let rev: CoordinatorResponse = serde_json::from_str(&body)
                             .expect("Couldn't deserialize re-verify response");
 
-                        log::debug!("Got rev: {:?}", &rev);
-
                         if rev.id != id {
                             panic!("Snowflake worker id changed ! {} -> {}", rev.id, id);
                         }
-
-                        log::debug!("rev.id == id");
 
                         let local_ts = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .expect("Time went backwards")
                             .as_secs();
 
-                        log::debug!("got time");
-
                         if (local_ts as i128 - rev.ts as i128).abs() > 60 {
                             panic!(
                                 "Coordinator time and local time since unix epoch differ by more then 60 seconds !"
                             )
                         }
-                        log::info!("Time diff: {}", (local_ts as i128 - rev.ts as i128).abs());
-                        log::debug!("checked time diff");
-
-
-                        let time_to_next_sleep = rev.re_ts - 60 - local_ts;
-
-                        log::info!("TTNS: {}", time_to_next_sleep);
-
                         log::info!("Snowflake re-validated, next: {}", time_to_next_sleep);
 
                         sleep(Duration::from_secs(time_to_next_sleep))
