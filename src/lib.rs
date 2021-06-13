@@ -32,6 +32,8 @@ type NanoTimestamp = u128;
 type WorkerId = u16;
 type SequenceId = u16;
 
+const PRE_TIME: u64 = 300;
+
 static PREV_TS: Lazy<Mutex<NanoTimestamp>> = Lazy::new(|| Mutex::new(0));
 static WORKER_ID: OnceCell<WorkerId> = OnceCell::new();
 static SEQUENCE_ID: Lazy<Mutex<SequenceId>> = Lazy::new(|| Mutex::new(0));
@@ -137,9 +139,9 @@ async fn init_worker_id() -> WorkerId {
             .expect("Time went backwards")
             .as_secs();
 
-        if (local_ts as i128 - cr.ts as i128).abs() > 60 {
+        if (local_ts as i128 - cr.ts as i128).abs() > PRE_TIME as i128 {
             panic!(
-                "Coordinator time and local time since unix epoch differ by more then 60 seconds !"
+                "Coordinator time and local time since unix epoch differ by more then {} seconds !",PRE_TIME
             )
         }
 
@@ -148,7 +150,7 @@ async fn init_worker_id() -> WorkerId {
         }
 
         let time_to_next_sleep =
-            cr.re_ts - 60 /* Attempts to verify 60 secs before it has to be done */ - local_ts;
+            cr.re_ts - PRE_TIME /* Attempts to verify PRE_TIME secs before it has to be done */ - local_ts;
         let id = cr.id;
         let curl = coordinator_url;
 
@@ -186,9 +188,9 @@ async fn init_worker_id() -> WorkerId {
                             .expect("Time went backwards")
                             .as_secs();
 
-                        if (local_ts as i128 - rev.ts as i128).abs() > 60 {
+                        if (local_ts as i128 - rev.ts as i128).abs() > PRE_TIME as i128{
                             panic!(
-                                "Coordinator time and local time since unix epoch differ by more then 60 seconds !"
+                                "Coordinator time and local time since unix epoch differ by more then {} seconds !",PRE_TIME
                             )
                         }
                         log::info!("Snowflake re-validated, next: {}", time_to_next_sleep);
