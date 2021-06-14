@@ -7,7 +7,7 @@ Set env ```SNOWFLAKE.COORDINATOR``` to point to your coordinator server !
 ### Cargo.toml
 ```toml
 [dependencies]
-snowflake="1.0.0"
+snowflake="1.1.0"
 ```
 
 ### main.rs
