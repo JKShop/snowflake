@@ -1,5 +1,5 @@
-# Coordinator
-- Gives out client id's to database_wrappers
+# Snowflake
+- Generates snowflake id's
 ## Usage
 
 Set env ```SNOWFLAKE.COORDINATOR``` to point to your coordinator server !
