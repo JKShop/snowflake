@@ -63,13 +63,13 @@ impl Snowflake {
 
 impl Display for Snowflake {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", self.as_hex_string())
+        write!(f, "{}", self.as_hex_string())
     }
 }
 
 impl Debug for Snowflake {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", self.as_hex_string())
+        write!(f, "{}", self.as_hex_string())
     }
 }
 
