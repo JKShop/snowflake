@@ -30,7 +30,8 @@ struct CoordinatorResponse {
 type CoordinatorTimestamp = u64;
 type NanoTimestamp = u128;
 type WorkerId = u16;
-type SequenceId = u16;
+type UsageId = u8;
+type SequenceId = u8;
 
 const PRE_TIME: u64 = 300;
 
@@ -47,6 +48,8 @@ pub struct Snowflake {
     pub worker_id: WorkerId,
     /// Snowflake sequence id (if multiple where to be generated in the same nano sec)
     pub sequence_id: SequenceId,
+    /// User defined usage id (can for example define regions)
+    pub usage_id: UsageId,
 }
 
 impl Snowflake {
@@ -54,7 +57,8 @@ impl Snowflake {
         let x: String = [
             format!("{:01$x}", self.timestamp, 16),
             format!("{:01$x}", self.worker_id, 4),
-            format!("{:01$x}", self.sequence_id, 4),
+            format!("{:01$x}", self.sequence_id, 2),
+            format!("{:01$x}", self.usage_id, 2),
         ]
         .join("");
         x.trim().to_string()
@@ -79,10 +83,10 @@ impl Debug for Snowflake {
 /// * String - Snowflake
 impl Snowflake {
     /// Generates a new snowflake
-    pub async fn new() -> Self {
+    pub async fn new(usage_id: UsageId) -> Self {
         // Don't change this order !
         let mut sequence_id_lock = SEQUENCE_ID.lock().expect("Couldn't lock SEQUENCE_ID mutex");
-        if *sequence_id_lock == u16::MAX {
+        if *sequence_id_lock == SequenceId::MAX {
             thread::sleep(Duration::from_nanos(10));
         }
         let mut prev_ts_lock = PREV_TS.lock().expect("Couldn't lock PREV_TS mutex");
@@ -103,6 +107,7 @@ impl Snowflake {
             timestamp: current_time,
             worker_id: get_worker_id().await,
             sequence_id: *sequence_id_lock,
+            usage_id
         }
     }
 }
@@ -217,14 +222,14 @@ async fn init_worker_id() -> WorkerId {
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
-    use crate::Snowflake;
+    use crate::{Snowflake, UsageId};
 
     #[tokio::test]
     pub async fn test_a() {
         let mut timestamps = Vec::with_capacity(u16::MAX as usize);
         println!("Generating snowflakes");
-        for _ in 0..(u16::MAX as usize * 4) {
-            timestamps.push(Snowflake::new().await);
+        for i in 0..(u16::MAX as usize * 4) {
+            timestamps.push(Snowflake::new((i % (UsageId::MAX as usize)) as u8).await);
         }
         println!("Sorting snowflakes");
         timestamps.sort_unstable_by_key(|e| e.as_hex_string());
@@ -235,7 +240,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_b() {
-        let snowflake = Snowflake::new().await;
+        let snowflake = Snowflake::new(0).await;
         println!("{:?}", snowflake);
     }
 }
