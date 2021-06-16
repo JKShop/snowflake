@@ -1,0 +1,62 @@
+kind: pipeline
+type: docker
+name: Build Container
+platform:
+  arch: amd64
+
+steps:
+  - name: restore-cargo-cache
+    image: drillster/drone-volume-cache
+    volumes:
+      - name: cargo-cache
+        path: /cargo-cache
+    settings:
+      restore: true
+      mount:
+        - $CARGO_HOME
+
+  - name: update
+    image: rustlang/rust:nightly
+    commands:
+      - cargo update
+    depends_on:
+      - restore-cargo-cache
+
+  - name: check
+    image: rustlang/rust:nightly
+    commands:
+      - cargo check --release
+    depends_on:
+      - update
+
+  - name: clippy
+    image: rustlang/rust:nightly
+    commands:
+      - cargo clippy --release --all-targets --all -- -D warnings
+    depends_on:
+      - update
+
+  - name: build
+    image: rustlang/rust:nightly
+    commands:
+      - cargo build --release --verbose
+    depends_on:
+      - update
+
+  - name: rebuild-cargo-cache
+    image: drillster/drone-volume-cache
+    volumes:
+      - name: cargo-cache
+        path: /cargo-cache
+    settings:
+      rebuild: true
+      mount:
+        - $CARGO_HOME
+    depends_on:
+      - build
+      - check
+
+volumes:
+  - name: cache
+    host:
+      path: /tmp/cache
