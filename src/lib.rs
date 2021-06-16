@@ -131,7 +131,7 @@ async fn init_worker_id() -> WorkerId {
     let coordinator_url = env::var("SNOWFLAKE.COORDINATOR").expect("Coordinator url not set");
     log::debug!("Coordinator url: {}", coordinator_url);
 
-    let response = ureq::get(&coordinator_url).call().unwrap();
+    let response = ureq::get(&coordinator_url).call().expect("Failed to get response");
     if response.status() != 200 {
         panic!("Coordinator gave non-200 response !\n{:?}", response);
     } else {
