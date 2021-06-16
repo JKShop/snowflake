@@ -9,7 +9,6 @@
 
 use core::fmt;
 use once_cell::sync::{Lazy, OnceCell};
-use reqwest::StatusCode;
 use serde::Deserialize;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Mutex;
@@ -131,13 +130,13 @@ async fn get_worker_id() -> WorkerId {
 async fn init_worker_id() -> WorkerId {
     let coordinator_url = env::var("SNOWFLAKE.COORDINATOR").expect("Coordinator url not set");
     log::debug!("Coordinator url: {}", coordinator_url);
-    let response =
-        reqwest::blocking::get(&coordinator_url).expect("Failed to get Coordinator response");
-    if response.status() != StatusCode::OK {
+
+    let response = ureq::get(&coordinator_url).call().unwrap();
+    if response.status() != 200 {
         panic!("Coordinator gave non-200 response !\n{:?}", response);
     } else {
         let cr: CoordinatorResponse =
-            serde_json::from_str(&response.text().expect("Couldn't parse response as text"))
+            serde_json::from_str(&response.into_string().expect("Couldn't parse response as text"))
                 .expect("Couldn't parse coordinator response !");
 
         let local_ts = SystemTime::now()
@@ -168,13 +167,13 @@ async fn init_worker_id() -> WorkerId {
             log::info!("re-verifying snowflake worker id");
             loop {
                 let mut verify_response =
-                    reqwest::blocking::get(format!("{}/reverify/{}", curl, id));
+                    ureq::get(&format!("{}/reverify/{}", curl, id)).call();
                 let mut re_verify = 0;
                 while verify_response.is_err() {
                     if re_verify >= 10 {
                         panic!("Failed to re-verify snowflake worker id !")
                     }
-                    verify_response = reqwest::blocking::get(format!("{}/reverify/{}", curl, id));
+                    verify_response = ureq::get(&format!("{}/reverify/{}", curl, id)).call();
                     log::warn!("re-verifying failed. Attempt: {}", re_verify);
                     re_verify += 1;
                     sleep(Duration::from_secs(1));
@@ -183,7 +182,7 @@ async fn init_worker_id() -> WorkerId {
                 match verify_response {
                     Ok(v) => {
                         let body = v
-                            .text()
+                            .into_string()
                             .expect("Couldn't read body from re-verify response");
                         let rev: CoordinatorResponse = serde_json::from_str(&body)
                             .expect("Couldn't deserialize re-verify response");
@@ -241,6 +240,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_b() {
+        std::env::set_var("SNOWFLAKE.COORDINATOR", "https://coordinator.jkshop.gg");
         let snowflake = Snowflake::new(0).await;
         println!("{:?}", snowflake);
     }
